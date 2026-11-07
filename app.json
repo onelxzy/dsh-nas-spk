@@ -1,0 +1,25 @@
+{
+  "package_id": "DeepSeekHarness-NAS",
+  "display_name": "DeepSeek Harness NAS",
+  "type": "dsh_patch",
+  "upstream_repo": "EIGHTfs/DeepSeekHarness-NAS",
+  "description": "DeepSeek Harness (DSH) 原生群晖打包，无需 Docker，开箱即用。Web UI 管理、多模型支持，已彻底修复跨版本升级配置持久化保留问题。",
+  "description_chs": "DeepSeek Harness (DSH) 原生群晖打包，无需 Docker，开箱即用。Web UI 管理、多模型支持，已彻底修复跨版本升级配置持久化保留问题。",
+  "maintainer": "DeepSeek AI / EIGHTfs",
+  "maintainer_url": "https://github.com/deepseek-ai/deepseek-harness",
+  "distributor": "onelxzy",
+  "distributor_url": "https://github.com/onelxzy",
+  "os_min_ver": "7.0-40851",
+  "category": "AI",
+  "changelog": "自动构建，对应上游 {tag}。",
+  "architectures": [
+    {
+      "family": "x86_64",
+      "asset_pattern": "DeepSeekHarness-NAS_x86_64-.*\\.spk"
+    },
+    {
+      "family": "arm",
+      "asset_pattern": "DeepSeekHarness-NAS_armv8-.*\\.spk"
+    }
+  ]
+}

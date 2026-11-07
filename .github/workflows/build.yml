@@ -1,0 +1,67 @@
+name: Build SPK
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: '忽略已发布版本，强制重新构建'
+        type: boolean
+        default: false
+  push:
+    branches: [ main ]
+    paths:
+      - 'build.py'
+      - 'app.json'
+      - 'spk_builder.py'
+      - 'template/**'
+      - '.github/workflows/**'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build SPK
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORCE_REBUILD: ${{ inputs.force_rebuild == 'true' && '1' || '' }}
+        run: python build.py
+
+      - name: Publish release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ ! -f dist/manifest.json ]; then
+            echo "本次没有新产物，跳过发布。"
+            exit 0
+          fi
+          PKG=$(python -c "import json;print(json.load(open('dist/manifest.json'))['package'])")
+          VER=$(python -c "import json;print(json.load(open('dist/manifest.json'))['version'])")
+          TAG="${PKG}-v${VER}"
+          echo "发布 ${TAG}"
+          gh release view "$TAG" >/dev/null 2>&1 ||             gh release create "$TAG" --title "$TAG" --notes-file dist/notes.md
+          for f in dist/*.spk; do
+            NAME=$(basename "$f")
+            OLD=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}"                   --jq ".assets[] | select(.name==\"${NAME}\") | .id" 2>/dev/null || true)
+            if [ -n "${OLD}" ]; then
+              gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${OLD}"
+            fi
+            gh release upload "$TAG" "$f" --clobber
+          done
+          gh release edit "$TAG" --notes-file dist/notes.md
