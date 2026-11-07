@@ -52,10 +52,12 @@ python build.py
 ```
 build.py               构建脚本
 spk_builder.py         SPK 封装实现
+dsh_patcher.py         解包上游 SPK、修正配置持久化与迁移逻辑后重打包
 app.json               套件元数据与上游资产匹配规则
-template/              INFO、conf、scripts、UI 等套件框架文件
 .github/workflows/     自动构建与发布
 ```
+
+本仓库不维护套件框架文件，`INFO`、`conf`、`scripts`、UI 等均沿用上游 SPK 原样，只在重打包时修补安装脚本与启动脚本。
 
 最低 DSM 版本：7.0-40851
 
