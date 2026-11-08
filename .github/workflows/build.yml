@@ -1,4 +1,4 @@
-name: Build SPK
+﻿name: Build SPK
 
 on:
   schedule:
@@ -38,7 +38,7 @@ jobs:
       - name: Build SPK
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          FORCE_REBUILD: ${{ inputs.force_rebuild == 'true' && '1' || '' }}
+          FORCE_REBUILD: ${{ inputs.force_rebuild && '1' || '' }}
         run: python build.py
 
       - name: Publish release
