@@ -34,11 +34,37 @@ DeepSeek Harness 的群晖原生封装，无需 Docker；修正了按版本隔�
 
 套件数据目录：`/var/packages/DeepSeekHarness-NAS/var`
 
+## 相对上游修正了什么
+
+本仓库在上游 SPK 之上打补丁（见 `dsh_patcher.py`），修正以下问题：
+
+| 问题 | 现象 | 修正 |
+| --- | --- | --- |
+| 升级被当成卸载 | 覆盖更新后安装结果提示"已卸载" | 用 `SYNOPKG_PKG_STATUS` 区分升级/卸载，升级时不再执行卸载清理 |
+| 升级删服务用户 | UID 变化后数据属主失配，可能启动失败 | 升级时保留服务用户、注册目录 |
+| 重启后起不来 | 关机重启后套件无法启动，只能卸载重装 | PID 文件增加进程身份校验；冷启动失败自动重试一次 |
+| 失败无现场 | 启动日志每次被清空，问题无法定位 | 日志改为轮转（`.1`/`.2`）+ 跨启动保留的崩溃日志 |
+| 向导端口丢失 | 安装时填的端口不生效 | 端口解析优先读 `var/ports`（与 installer 写入位置一致） |
+| 数据按版本隔离 | 每次升级都要重新配置 | 数据固化到 `var/.dsh`，并自动迁移历史目录 |
+
+### 关于版本号
+
+上游 tag 会映射成 DSM 可比较的纯数字版本（`alpha < beta < rc < 正式版`）。
+同一上游版本重新打包时，用 `BUILD_REVISION` 让版本号变大，否则 DSM 认为没有更新：
+
+```bash
+BUILD_REVISION=1 python build.py     # 0.2.3-010200 -> 0.2.3-010201
+```
+
 ## 构建
 
 ```bash
-python build.py
+python3 test_patcher.py   # 补丁不变量测试（版本号序 / 锚点必须命中）
+python3 build.py
 ```
+
+构建会对产物做补丁自检，任何一处补丁没生效都会直接失败 —— 避免"看起来打了补丁、
+实际没生效"。
 
 产物输出到 `dist/`。构建流程：
 
@@ -52,7 +78,8 @@ python build.py
 ```
 build.py               构建脚本
 spk_builder.py         SPK 封装实现
-dsh_patcher.py         解包上游 SPK、修正配置持久化与迁移逻辑后重打包
+dsh_patcher.py         解包上游 SPK、打补丁后重打包（锚点失配即报错）
+test_patcher.py        补丁不变量测试
 app.json               套件元数据与上游资产匹配规则
 .github/workflows/     自动构建与发布
 ```

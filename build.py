@@ -60,8 +60,20 @@ def md5_file(path):
 
 
 def syno_version(tag):
-    """上游 tag 转成群晖可比较版本号，例如 1.0.0-rc.48 -> 1.0.0-48。"""
-    return (tag or "").strip().lstrip("v").replace("-rc.", "-")
+    """上游 tag 转成群晖可比较版本号，例如 v1.0.0 -> 1.0.0。"""
+    return (tag or "").strip().lstrip("v")
+
+
+def build_revision():
+    """同一上游版本的重新打包序号（0 = 不追加）。
+
+    改了打包脚本但上游没发新版时，必须让版本号变大，否则 DSM 认为没有更新，
+    用户永远收不到修复。用法：BUILD_REVISION=1 python build.py
+    """
+    try:
+        return max(0, int(os.environ.get("BUILD_REVISION", "0").strip() or "0"))
+    except ValueError:
+        return 0
 
 
 def match_asset(assets, pattern):
@@ -110,6 +122,63 @@ def unpack_extra(archive, wanted_dir, workdir):
     raise FileNotFoundError("归档中未找到目录: " + wanted_dir)
 
 
+# 构建后自检：这些标记必须真的出现在产物里。
+# 之前"端口补丁锚点失配但静默通过"，导致修复看起来打了、实际一行没生效。
+DSH_PATCH_MARKERS = {
+    "scripts/installer": [
+        "is_uninstalling()",
+        "migrate_legacy_data()",
+        "覆盖升级：跳过卸载清理",
+        'PORTS_FILE="${PKG_VAR_DIR}/ports"',
+        '${PKG_VAR_DIR}/.dsh"',
+    ],
+    "scripts/start-stop-status": [
+        'PORT_FILE="${SYNOPKG_PKGVAR}/ports"',
+        'export DSH_HOME="${SYNOPKG_PKGVAR}/.dsh"',
+        "自动重试",
+        '>> "${PACKAGE_BASE}/var/logs/start.log"',
+    ],
+}
+
+
+def verify_patched_spk(spk_path):
+    """解包产物，逐项确认补丁标记存在；缺一项就构建失败。"""
+    import tarfile as _tf
+
+    missing = []
+    with tempfile.TemporaryDirectory(prefix="verify-") as tmp:
+        outer = Path(tmp)
+        with _tf.open(spk_path, "r:*") as tf:
+            tf.extractall(outer)
+        for rel, markers in DSH_PATCH_MARKERS.items():
+            f = outer / rel
+            if not f.exists():
+                missing.append("{0}: 文件缺失".format(rel))
+                continue
+            text = f.read_text(encoding="utf-8", errors="ignore")
+            for m in markers:
+                if m not in text:
+                    missing.append("{0}: 缺少标记 {1!r}".format(rel, m))
+
+        # package.tgz 内的 start.sh
+        pkg = outer / "package.tgz"
+        if pkg.exists():
+            inner = Path(tmp) / "inner"
+            inner.mkdir()
+            with _tf.open(pkg, "r:*") as tf:
+                tf.extractall(inner)
+            sh = inner / "start.sh"
+            if not sh.exists():
+                missing.append("package.tgz: 缺少 start.sh")
+            else:
+                text = sh.read_text(encoding="utf-8", errors="ignore")
+                for m in ("_pid_is_ours()", "ensure_logf_append()", "启动失败"):
+                    if m not in text:
+                        missing.append("start.sh: 缺少标记 {0!r}".format(m))
+    if missing:
+        raise AssertionError("补丁自检失败：\n  - " + "\n  - ".join(missing))
+
+
 def spk_name(cfg, version, family):
     return "{0}_{1}_{2}.spk".format(cfg["package_id"], version, "armv8" if family == "arm" else "x86_64")
 
@@ -140,7 +209,7 @@ def build_one(cfg, arch_cfg, version, display_version, tag, rel_assets, workdir)
         if not asset:
             raise RuntimeError("未找到匹配的 Release 资产: " + arch_cfg["asset_pattern"])
         src = download(asset["browser_download_url"], Path(workdir) / asset["name"])
-        return patch_and_repack_dsh_spk(
+        md5 = patch_and_repack_dsh_spk(
             original_spk_path=str(src),
             output_spk_path=str(out_path),
             distributor=cfg["distributor"],
@@ -148,6 +217,8 @@ def build_one(cfg, arch_cfg, version, display_version, tag, rel_assets, workdir)
             version_override=version,
             display_label=display_version,
         )
+        verify_patched_spk(out_path)
+        return md5
 
     if cfg["type"] == "vaultwarden":
         import vaultwarden_artifacts as va
@@ -218,7 +289,7 @@ def main():
     if cfg["type"] == "dsh_patch":
         from dsh_patcher import dsh_syno_version
 
-        version, display_version = dsh_syno_version(tag)
+        version, display_version = dsh_syno_version(tag, revision=build_revision())
     else:
         version, display_version = syno_version(tag), syno_version(tag)
 
@@ -252,6 +323,7 @@ def main():
         "display_version": display_version,
         "upstream_repo": cfg["upstream_repo"],
         "upstream_tag": tag,
+        "build_revision": build_revision(),
         "os_min_ver": cfg["os_min_ver"],
         "assets": assets,
     }

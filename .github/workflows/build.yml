@@ -1,4 +1,4 @@
-﻿name: Build SPK
+name: Build SPK
 
 on:
   schedule:
@@ -9,12 +9,18 @@ on:
         description: '忽略已发布版本，强制重新构建'
         type: boolean
         default: false
+      build_revision:
+        description: '同版本重发序号（改了打包脚本但上游未发版时填 1、2、3…；必须递增）'
+        type: string
+        default: ''
   push:
     branches: [ main ]
     paths:
       - 'build.py'
       - 'app.json'
       - 'spk_builder.py'
+      - 'dsh_patcher.py'
+      - 'test_patcher.py'
       - 'template/**'
       - '.github/workflows/**'
 
@@ -35,10 +41,14 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Test patcher invariants
+        run: python3 test_patcher.py
+
       - name: Build SPK
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FORCE_REBUILD: ${{ inputs.force_rebuild && '1' || '' }}
+          BUILD_REVISION: ${{ inputs.build_revision }}
         run: python build.py
 
       - name: Publish release
