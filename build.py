@@ -64,18 +64,6 @@ def syno_version(tag):
     return (tag or "").strip().lstrip("v")
 
 
-def build_revision():
-    """同一上游版本的重新打包序号（0 = 不追加）。
-
-    改了打包脚本但上游没发新版时，必须让版本号变大，否则 DSM 认为没有更新，
-    用户永远收不到修复。用法：BUILD_REVISION=1 python build.py
-    """
-    try:
-        return max(0, int(os.environ.get("BUILD_REVISION", "0").strip() or "0"))
-    except ValueError:
-        return 0
-
-
 def match_asset(assets, pattern):
     rx = re.compile(pattern)
     for asset in assets:
@@ -289,7 +277,9 @@ def main():
     if cfg["type"] == "dsh_patch":
         from dsh_patcher import dsh_syno_version
 
-        version, display_version = dsh_syno_version(tag, revision=build_revision())
+        # build 段固定 4 位，由上游 alpha/beta/rc 序号决定；
+        # 不再支持"同上游版本重打包"（见 dsh_patcher 注释），故不传 revision。
+        version, display_version = dsh_syno_version(tag)
     else:
         version, display_version = syno_version(tag), syno_version(tag)
 
@@ -323,7 +313,6 @@ def main():
         "display_version": display_version,
         "upstream_repo": cfg["upstream_repo"],
         "upstream_tag": tag,
-        "build_revision": build_revision(),
         "os_min_ver": cfg["os_min_ver"],
         "assets": assets,
     }

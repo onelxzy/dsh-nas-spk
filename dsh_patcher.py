@@ -50,19 +50,11 @@ from spk_builder import build_outer_spk_tar
 #       rc.X    → 300 + X     (0.2.1-rc.5     → 0.2.1-0305)
 #       正式版  → 9000
 #
-# revision：同一上游版本重新打包（改了打包脚本但上游没发版）时必须让版本号变大，
-#   否则 DSM 认为"没有新版本"，用户永远收不到修复。
-#
-# ⚠ 修订号不能简单拼在后面：那样 0.2.3-010201（alpha+rev1）会大于后续正式版
-#   0.2.3-9000，等于把正式版永久屏蔽掉 —— 这是个比原问题更糟的回归。
-#   因此整个 build 段统一放大 100 倍（两位留给修订号）：
-#       build = (阶段权重 + 序号) * 100 + revision，固定输出 6 位。
-#       alpha.2     → (100+2)*100 = 10200
-#       alpha.2 r1  → 10201
-#       rc.5        → (300+5)*100 = 30500
-#       正式版      → 9000*100 = 900000
-#   这样「alpha < beta < rc < 正式版」与「同版本内 rev 递增」同时成立。
-#   旧的 4 段版本（0.2.3-0102）仍严格小于新的 6 段版本，升级方向正确。
+# 保持 build 段固定 4 位。修订号不做后拼、也不放大 build 段：
+#   本仓库不再发布"同上游版本的重打包号"。改了打包脚本时，等上游发新版本再构建，
+#   build 段直接由上游 alpha/beta/rc 序号决定，避免出现 0.2.3-010200 这类长版本
+#   让版本号体系失控（人工核对与 Release 命名都会乱）。
+#   代价：同上游版本无法重发。这是刻意取舍 —— 版本号可读性优先。
 _DSH_STAGE_WEIGHT = {"alpha": 100, "beta": 200, "rc": 300}
 _DSH_STABLE_WEIGHT = 9000
 
@@ -74,8 +66,8 @@ def dsh_syno_version(release_tag: str, fallback: str = "", revision: int = 0) ->
     例：'dsh-v0.2.2-alpha.2' -> ('0.2.2-0102', '0.2.2-alpha.2')
         'dsh-v0.2.1-rc.5'   -> ('0.2.1-0305', '0.2.1-rc.5')
         'dsh-v0.2.2'        -> ('0.2.2-9000', '0.2.2')
-        同一 tag + revision=2 -> ('0.2.2-010202', ...)
 
+    注意：revision 参数保留签名兼容，但**不再影响版本号**（见上方注释）。
     解析失败时返回 (fallback, fallback)。
     """
     raw = (release_tag or "").strip()
@@ -91,7 +83,7 @@ def dsh_syno_version(release_tag: str, fallback: str = "", revision: int = 0) ->
     display = f"{base}-{pre}" if pre else base
 
     if not pre:
-        stage_build = _DSH_STABLE_WEIGHT
+        build = _DSH_STABLE_WEIGHT
     else:
         pm = re.match(r"^(alpha|beta|rc)[.\-_]?(\d*)$", pre.lower())
         if pm:
@@ -100,14 +92,12 @@ def dsh_syno_version(release_tag: str, fallback: str = "", revision: int = 0) ->
                 seq = int(num)
             except ValueError:
                 seq = 1
-            stage_build = _DSH_STAGE_WEIGHT[stage] + seq
+            build = _DSH_STAGE_WEIGHT[stage] + seq
         else:
             digits = re.sub(r"\D", "", pre) or "1"
-            stage_build = int(digits)
+            build = int(digits)
 
-    rev = max(0, min(99, int(revision or 0)))
-    build = stage_build * 100 + rev
-    return (f"{base}-{build:06d}", display)
+    return (f"{base}-{build:04d}", display)
 
 
 # ---------------------------------------------------------------------------

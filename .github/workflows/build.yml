@@ -6,13 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       force_rebuild:
-        description: '忽略已发布版本，强制重新构建'
+        description: '忽略已发布版本，强制重新构建（注意：版本号不变，仅重打同版本）'
         type: boolean
         default: false
-      build_revision:
-        description: '同版本重发序号（改了打包脚本但上游未发版时填 1、2、3…；必须递增）'
-        type: string
-        default: ''
   push:
     branches: [ main ]
     paths:
@@ -48,7 +44,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FORCE_REBUILD: ${{ inputs.force_rebuild && '1' || '' }}
-          BUILD_REVISION: ${{ inputs.build_revision }}
         run: python build.py
 
       - name: Publish release

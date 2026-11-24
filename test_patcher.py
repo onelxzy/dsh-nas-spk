@@ -2,12 +2,14 @@
 # -*- coding: utf-8 -*-
 """dsh_patcher 的关键不变量测试。
 
-这些断言对应三类真实踩过的事故，改动 dsh_patcher.py 后必须仍然通过：
+这些断言对应几类真实踩过的事故，改动 dsh_patcher.py 后必须仍然通过：
 
-1. 版本号序：alpha < beta < rc < 正式版，且同版本内 revision 递增。
-   曾经把 revision 直接拼在 4 段版本后面，导致 0.2.3-010201 > 0.2.3-9000，
-   正式版被永久屏蔽（比原问题更糟）。
-2. 旧包可升级性：已有安装的 0.2.3-0102 必须严格小于新产物，否则用户收不到修复。
+1. 版本号序：alpha < beta < rc < 正式版。build 段固定 4 位，由上游阶段序号决定。
+   曾经为支持"同版本重打包"把 build 段放大 100 倍（变成 6 位，如 0.2.3-010200），
+   版本号体系失控、Release 命名混乱，已回退为 4 位。
+2. 旧包可升级性：已有安装的 0.2.3-0102 必须能被更高版本覆盖。
+   注意 alpha.2 与其自身同号，故重打包同一上游版本不会产生新版本号 ——
+   这是刻意取舍：改了打包脚本要等上游发新版本才能让用户收到。
 3. 补丁锚点：installer / start-stop-status / start.sh 的每处修改都必须命中。
    锚点静默失配会让修复"看起来打了、实际没生效"（端口补丁就这么失效过）。
 
@@ -24,43 +26,44 @@ failures = []
 
 def check(name, cond, detail=""):
     if cond:
-        print("  ✓ " + name)
+        print("  [OK] " + name)
     else:
-        print("  ✗ " + name + (("  → " + detail) if detail else ""))
+        print("  [FAIL] " + name + (("  -> " + detail) if detail else ""))
         failures.append(name)
 
 
 def vkey(v):
-    m = re.match(r"(\d+)\.(\d+)\.(\d+)-(\d+)", v)
+    m = re.match(r"^(\d+)\.(\d+)\.(\d+)-(\d+)$", v)
     if not m:
         raise AssertionError("无法解析版本: " + v)
     return tuple(int(x) for x in m.groups())
 
 
-print("[1] 版本号序")
+print("[1] build 段固定 4 位，且阶段有序")
 seq = [
-    ("dsh-v0.2.3-alpha.2", 0),
-    ("dsh-v0.2.3-alpha.2", 1),
-    ("dsh-v0.2.3-alpha.2", 2),
-    ("dsh-v0.2.3-beta.1", 0),
-    ("dsh-v0.2.3-rc.1", 0),
-    ("dsh-v0.2.3", 0),
-    ("dsh-v0.2.3", 1),
+    "dsh-v0.2.3-alpha.2",
+    "dsh-v0.2.3-beta.1",
+    "dsh-v0.2.3-rc.1",
+    "dsh-v0.2.3",
 ]
-vs = [dsh_syno_version(t, revision=r)[0] for t, r in seq]
-for (t, r), v in zip(seq, vs):
-    print("      {0:22} rev={1} -> {2}".format(t, r, v))
+vs = [dsh_syno_version(t)[0] for t in seq]
+for t, v in zip(seq, vs):
+    print("      {0:22} -> {1}".format(t, v))
+    check("  {0} build 段为 4 位".format(t), bool(re.match(r"^\d+\.\d+\.\d+-\d{4}$", v)), v)
 ks = [vkey(v) for v in vs]
-check("alpha < beta < rc < 正式版，且 revision 递增", all(ks[i] < ks[i + 1] for i in range(len(ks) - 1)))
+check("alpha < beta < rc < 正式版", all(ks[i] < ks[i + 1] for i in range(len(ks) - 1)))
 
-print("\n[2] 旧包可升级性")
-check("0.2.3-0102（已发布旧版）< 新产物", vkey("0.2.3-0102") < vkey(dsh_syno_version("dsh-v0.2.3-alpha.2")[0]))
-check("正式版不被 alpha+rev 越过",
-      vkey(dsh_syno_version("dsh-v0.2.3-alpha.2", revision=99)[0]) < vkey(dsh_syno_version("dsh-v0.2.3")[0]))
+print("\n[2] 不得再产出 6 位 build 段")
+for t in seq:
+    v6 = dsh_syno_version(t, revision=1)[0]
+    check("{0} 不受 revision 影响（仍 4 位）".format(t),
+          v6 == dsh_syno_version(t)[0] and bool(re.match(r"^\d+\.\d+\.\d+-\d{4}$", v6)), v6)
 
-print("\n[3] revision 越界被夹紧")
-check("revision=100 夹到 99", dsh_syno_version("dsh-v0.2.3-alpha.2", revision=100)[0]
-      == dsh_syno_version("dsh-v0.2.3-alpha.2", revision=99)[0])
+print("\n[3] 升级方向")
+check("0.2.3-0102 < 0.2.3-beta.1（能升级）",
+      vkey("0.2.3-0102") < vkey(dsh_syno_version("dsh-v0.2.3-beta.1")[0]))
+check("alpha 不会越过正式版",
+      vkey(dsh_syno_version("dsh-v0.2.3-alpha.99")[0]) < vkey(dsh_syno_version("dsh-v0.2.3")[0]))
 
 print("\n[4] 补丁锚点必须命中")
 # 用真实上游脚本片段做冒烟：锚点缺失时必须抛 PatchError，绝不能静默返回原文
